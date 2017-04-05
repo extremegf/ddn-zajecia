@@ -2,9 +2,20 @@ import datetime
 
 import tensorflow as tf
 import numpy as np
-from tensorflow.examples.tutorials.mnist import input_data
 
-MODEL_CKPT = "/tmp/model.ckpt"
+from cifar10 import cifar10_input
+
+# Global constants describing the CIFAR-10 data set.
+IMAGE_SIZE = cifar10_input.IMAGE_SIZE
+IMAGE_DEPTH = cifar10_input.IMAGE_DEPTH
+NUM_CLASSES = cifar10_input.NUM_CLASSES
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = cifar10_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = cifar10_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
+IMAGE_PIX = IMAGE_SIZE ** 2 * IMAGE_DEPTH
+
+data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin') # todo
+
+MODEL_CKPT = "/tmp/model_cifar10.ckpt"
 
 ''''
 Tasks:
@@ -42,7 +53,7 @@ Extra task:
 * Try running your model on CIFAR-10 dataset. See what results you can get. In the future we will try
 to solve this dataset with Convolutional Neural Network.
 '''
-class MnistTrainer(object):
+class Cifar10Trainer(object):
     def train_on_batch(self, batch_xs, batch_ys):
         opt = self.optimizer # normal
         # opt = self.sgd_opt # manual sgd
@@ -50,11 +61,11 @@ class MnistTrainer(object):
                              feed_dict={self.x: batch_xs, self.y_target: batch_ys})[1:]
 
     def create_model(self):
-        self.x = tf.placeholder(tf.float32, [None, 784], name='x')
+        self.x = tf.placeholder(tf.float32, [None, IMAGE_PIX], name='x')
         self.y_target = tf.placeholder(tf.float32, [None, 10])
 
         self.vars = []
-        lsizes = [784, 50, 10]
+        lsizes = [IMAGE_PIX, 50, 10]
         y = self.x
         for i, (in_size, out_size) in enumerate(zip(lsizes[:-1], lsizes[1:])):
             W = tf.Variable(np.random.normal(loc=0., scale=2./ (in_size + out_size),
@@ -81,7 +92,7 @@ class MnistTrainer(object):
         self.all_summaries = tf.summary.merge_all()
 
         bad_images = tf.boolean_mask(self.x, tf.logical_not(corr_answ))
-        mis_class_imgs = tf.reshape(bad_images, [-1, 28, 28, 1])
+        mis_class_imgs = tf.reshape(bad_images, [-1, IMAGE_SIZE, IMAGE_SIZE, IMAGE_DEPTH])
         self.miss_img_summarry = tf.summary.image("Missclassified images", mis_class_imgs, 50)
 
 
@@ -98,6 +109,9 @@ class MnistTrainer(object):
 
     def train(self, load_model=False):
         self.create_model()
+        images, labels = cifar10_input.distorted_inputs(data_dir=data_dir,
+                                                        batch_size=FLAGS.batch_size)
+
         mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
         with tf.Session() as self.sess:
@@ -159,6 +173,6 @@ class MnistTrainer(object):
 
 
 if __name__ == '__main__':
-    trainer = MnistTrainer()
-    trainer.train(load_model=True)
+    trainer = Cifar10Trainer()
+    trainer.train(load_model=False)
 
