@@ -68,11 +68,11 @@ class MnistTrainer(object):
 
         signal = tf.reshape(signal, [-1, 28, 28, 1])
 
-        conv_depth_list = [64, 32, 16, 8]
+        conv_depth_list = [64, 1]
         for idx, new_depth in enumerate(conv_depth_list):
             cur_depth = int(signal.get_shape()[3])
-            W = self.weight_variable([5, 5, cur_depth, new_depth], 0.1)
-            signal = tf.nn.conv2d(signal, W, strides=[1, 1, 1, 1], padding='VALID')
+            W = self.weight_variable([3, 3, cur_depth, new_depth], 0.1)
+            signal = tf.nn.conv2d(signal, W, strides=[1, 1, 1, 1], padding='SAME')
 
             b = self.bias_variable([new_depth], 0.0)
             signal += b
@@ -84,14 +84,14 @@ class MnistTrainer(object):
             # signal = (signal - neur_avg) / tf.sqrt(neur_stddev + 1e-8);
             #
             # beta = self.bias_variable([new_depth], 0.0)
-            # gamma = self.bias_variable([new_depth], 1.0)
-            # signal = signal * gamma + beta
+          # gamma = self.bias_variable([new_depth], 1.0)
+          # signal = signal * gamma + beta
 
-            print 'shape', signal.get_shape()
+          # print 'shape', signal.get_shape()
 
         sh = signal.get_shape()
         signal = tf.reshape(signal, [-1, int(sh[1]*sh[2]*sh[3])])
-        neurons_list = [64] * 1 + [10]
+        neurons_list = [64] * 2 + [10]
         self.keep_prob = tf.placeholder(tf.float32)
         for idx, new_num_neurons in enumerate(neurons_list):
             cur_num_neurons = int(signal.get_shape()[1])
@@ -123,7 +123,7 @@ class MnistTrainer(object):
 
             print 'shape', signal.get_shape()
 
-        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=signal, targets=self.y_target))
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=signal, labels=self.y_target))
         self.accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(self.y_target, axis=1), tf.argmax(signal, axis=1)), tf.float32))
 
         self.train_step = tf.train.AdamOptimizer(0.001).minimize(self.loss)
