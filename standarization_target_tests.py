@@ -1,4 +1,4 @@
-
+import datetime
 import tensorflow as tf
 import numpy as np
 import math
@@ -42,10 +42,13 @@ This is an exemplary exercise. MNIST dataset is very simple and we are using it 
 To get more meaningful experience with training convnets use the CIFAR dataset.
 '''
 
+LOG_DIR = '/tmp/standarization_target_tests/'
+
+BAD_INIT=True
 
 class MnistTrainer(object):
     def train_on_batch(self, batch_xs, batch_ys):
-        results = self.sess.run([self.train_step, self.loss, self.accuracy],
+        results = self.sess.run([self.train_step, self.loss, self.accuracy, self.summaries],
                                 feed_dict={self.x: batch_xs, self.y_target: batch_ys, self.keep_prob: 1.0})
         return results[1:]
 
@@ -64,70 +67,82 @@ class MnistTrainer(object):
         signal = self.x
         print 'shape', signal.get_shape()
 
+        neur_averages = []
+        neur_stddevs = []
+        all_gammas = []
+        all_beta = []
 
-
-        signal = tf.reshape(signal, [-1, 28, 28, 1])
-
-        conv_depth_list = [64, 32, 16, 1]
-        for idx, new_depth in enumerate(conv_depth_list):
-            cur_depth = int(signal.get_shape()[3])
-            W = self.weight_variable([3, 3, cur_depth, new_depth], 0.1)
-            signal = tf.nn.conv2d(signal, W, strides=[1, 1, 1, 1], padding='SAME')
-
-            # b = self.bias_variable([new_depth], 0.0)
-            # signal += b
-
-            neur_avg = tf.reduce_mean(signal, axis=[0,1,2])
-            neur_stddev = tf.reduce_mean(
-                (signal - neur_avg) ** 2, axis=[0,1,2]
-            )
-            signal = (signal - neur_avg) / tf.sqrt(neur_stddev + 1e-8);
-
-            beta = self.bias_variable([new_depth], 0.0)
-            gamma = self.bias_variable([new_depth], 1.0)
-            signal = signal * gamma + beta
-
-            print 'shape', signal.get_shape()
-
-        sh = signal.get_shape()
-        signal = tf.reshape(signal, [-1, int(sh[1]*sh[2]*sh[3])])
-        neurons_list = [64] * 2 + [10]
+        neurons_list = [64] * 10 + [10]
         self.keep_prob = tf.placeholder(tf.float32)
         for idx, new_num_neurons in enumerate(neurons_list):
             cur_num_neurons = int(signal.get_shape()[1])
             with tf.variable_scope('fc_'+str(idx+1)):
+                if BAD_INIT:
+                    stddev = 0.0001
+                else:
+                    stddev = math.sqrt(2. / cur_num_neurons)
                 W_fc = self.weight_variable([cur_num_neurons, new_num_neurons],
-                                            stddev=(math.sqrt(2. / cur_num_neurons)))
+                                            stddev=stddev)
                                             # stddev=1.0)
 
             signal = tf.matmul(signal, W_fc)
 
             if idx != len(neurons_list)-1:
                 neur_avg = tf.reduce_mean(signal, axis=0);
-                neur_stddev = tf.reduce_mean(
+                neur_variance = tf.reduce_mean(
                     (signal - neur_avg) ** 2,
                     axis=0
                 )
-                signal = (signal - neur_avg) / tf.sqrt(neur_stddev + 1e-8)
+                neur_stddev = tf.sqrt(neur_variance + 1e-8)
+                neur_averages.append(neur_avg)
+                neur_stddevs.append(neur_stddev)
                 beta = self.bias_variable([new_num_neurons], 0.0)
                 gamma = self.bias_variable([new_num_neurons], 1.0)
+                all_beta.append(beta)
+                all_gammas.append(gamma)
                 signal = gamma * signal + beta
 
                 signal = tf.maximum(signal / 5., signal)
-
-
+            print 'shape', signal.get_shape()
 
                 # signal = tf.nn.relu(signal)
             # if idx != 0 and idx != len(neurons_list)-1:
                 # signal = tf.nn.dropout(signal, self.keep_prob)
 
-            print 'shape', signal.get_shape()
+        all_neur_averages = tf.concat(neur_averages, axis=0)
+        tf.summary.histogram('all_neur_averages', all_neur_averages);
+        all_neur_stddevs = tf.concat(neur_stddevs, axis=0)
+        tf.summary.histogram('all_neur_stddevs', all_neur_stddevs);
 
-        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=signal, labels=self.y_target))
+        all_gammas = tf.concat(all_gammas, axis=0)
+        all_beta = tf.concat(all_beta, axis=0)
+
+        tf.summary.histogram('all_beta', all_beta)
+        tf.summary.histogram('all_gammas', all_gammas)
+
+        err_loss_comp = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=signal, labels=self.y_target))
+        mean_sqr_dev_blah = tf.reduce_mean((all_neur_stddevs - 1.0) ** 2, axis=0)
+
+        neural_mean = tf.reduce_mean(all_neur_averages ** 2)
+        neural_mean_loss_comp = neural_mean * 0.001
+
+        tf.summary.scalar("neural_mean", neural_mean)
+        tf.summary.scalar("neural_mean_loss_comp", neural_mean_loss_comp)
+
+        standariz_loss_comp = mean_sqr_dev_blah * 0.001
+
+        tf.summary.scalar("standariz_loss_comp", standariz_loss_comp)
+        tf.summary.scalar("mean_sqr_dev_blah", mean_sqr_dev_blah)
+        tf.summary.scalar("err_loss_comp", err_loss_comp)
+
+        self.loss = err_loss_comp + standariz_loss_comp + neural_mean_loss_comp
         self.accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(self.y_target, axis=1), tf.argmax(signal, axis=1)), tf.float32))
+        tf.summary.scalar("loss", self.loss)
+        tf.summary.scalar("accuracy", self.accuracy)
 
         self.train_step = tf.train.AdamOptimizer(0.001).minimize(self.loss)
 
+        self.summaries = tf.summary.merge_all()
         print 'list of variables', map(lambda x: x.name, tf.global_variables())
 
     def train(self):
@@ -137,6 +152,9 @@ class MnistTrainer(object):
 
  
         with tf.Session() as self.sess:
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+            summary_writer = tf.summary.FileWriter(LOG_DIR + '%s-train' % date_str, self.sess.graph)
+
             tf.global_variables_initializer().run()  # initialize variables
             batches_n = 100000
             mb_size = 128
@@ -146,7 +164,9 @@ class MnistTrainer(object):
                 for batch_idx in range(batches_n):
                     batch_xs, batch_ys = mnist.train.next_batch(mb_size)
  
-                    vloss = self.train_on_batch(batch_xs, batch_ys)
+                    vloss, acc, summary = self.train_on_batch(batch_xs, batch_ys)
+                    summary_writer.add_summary(summary, batch_idx)
+                    summary_writer.flush()
  
                     losses.append(vloss)
  
